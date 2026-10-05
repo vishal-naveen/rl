@@ -1567,6 +1567,34 @@ class TestGRPOLossRefactorBehavior:
         torch.testing.assert_close(out.kl_to_ref, expected_kl)
         torch.testing.assert_close(out.loss_kl_to_ref, kl_coeff * expected_kl)
 
+    def test_kl_to_ref_averages_over_valid_tokens_only(self):
+        """The KL penalty must be a mean over unmasked tokens, not over the padded tensor."""
+        torch.manual_seed(0)
+        mask = torch.tensor([[True, True, False, False], [True, True, True, False]])
+        cur_lp = torch.randn(2, 4) * 0.5
+        ref_lp = cur_lp + torch.randn(2, 4) * 0.5
+        data = TensorDict(
+            {
+                "current_log_prob": cur_lp,
+                "mask": mask,
+                ("tokens", "full"): torch.zeros(2, 4, dtype=torch.long),
+                ("log_probs", "full"): cur_lp,
+                ("next", "ref_log_probs", "full"): ref_lp,
+                "advantage": torch.ones(2, 4, 1),
+            },
+            batch_size=[2],
+        )
+        diff = ref_lp - cur_lp
+        expected_kl = (diff.expm1() - diff)[mask].mean()
+
+        loss_fn = GRPOLoss(
+            _FixedLogProbPolicy(), entropy_bonus=False, kl_to_ref_coeff=0.5
+        )
+        out = loss_fn(data)
+
+        torch.testing.assert_close(out.kl_to_ref, expected_kl)
+        torch.testing.assert_close(out.loss_kl_to_ref, 0.5 * expected_kl)
+
     def test_dapo_can_be_instantiated_with_actor_network(self):
         """Before the fix, DAPO.__init__ took tensordict as its first positional
         argument (a copy-paste of _kl_to_ref body). Calling

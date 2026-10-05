@@ -912,7 +912,7 @@ class GRPOLoss(LossModule):
                 expand_as_right(mask, cur_log_prob), cur_log_prob, 0.0
             )
         diff = ref_log_prob - cur_log_prob
-        kl_penalty = (diff.expm1() - diff).mean()
+        kl_penalty = self._reduce_loss(diff.expm1() - diff, mask=mask, reduction="mean")
         return coeff * kl_penalty, kl_penalty
 
     def _log_weight(
